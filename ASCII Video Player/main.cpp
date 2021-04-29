@@ -28,7 +28,7 @@ void setRuntime(float rt) {
 }
 
 int main() {
-    std::string name = "badapple";
+    std::string name = "arctic";
 
     std::string videoFilePath = name + ".mp4";
     std::vector<cv::Mat> frames;
