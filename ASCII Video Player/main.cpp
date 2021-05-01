@@ -12,30 +12,84 @@
 #include <chrono>
 #include <random>
 
-#define WIDTH 110
-#define HEIGHT 48
+#define MAX_WIDTH 150
+#define MAX_HEIGHT 100
 
-static bool canPressRewind = true, canPressForward = true;
+static bool spaceDown = false;
 
 static float runtime = 0.0f;
+static sf::Sound song;
+
+static bool useColor = true;
+
+static bool paused = false;
+
+void togglePause() {
+    paused = !paused;
+    if (paused)
+        song.stop();
+    else {
+        song.play();
+        song.setPlayingOffset(sf::seconds(runtime));
+    }
+}
 
 void setRuntime(float rt) {
     runtime = rt;
 
-    if (runtime < 0) runtime = 0.0f;
+    if (paused) return;
 
-    //mciSendStringA("stop mp3", NULL, 0, NULL);
-    //std::string com = "play mp3 from " + std::to_string((int)(runtime * 1000)) + "";
-    
-   // mciSendStringA(com.c_str(), NULL, 0, NULL);
+    if (runtime < 0) runtime = 0.0f;
+    song.setPlayingOffset(sf::seconds(runtime));
+}
+
+static unsigned short colorCodes[16 * 4] = {
+    0, 0, 0, 0, // black
+    1, 0, 0, 255, // blue
+    2, 0, 255, 0, // green
+    3, 173, 216, 230, // light blue
+    4, 255, 0, 0, // red
+    5, 128, 0, 128, // purple
+    6, 255, 255, 0, // yellow
+    7, 211, 211, 211, // light gray
+    8, 128, 128, 128, // gray
+    9, 135, 206, 235, // sky blue
+    10, 50, 205, 50, // lime green
+    11, 0, 255, 255, // aqua
+    12, 255, 192, 203, // pink
+    13, 255, 0, 255, // magenta
+    14, 210, 180, 140, // tan
+    15, 255, 255, 255 // white
+};
+
+int getDistance(int r1, int g1, int b1, int r2, int g2, int b2) {
+    int rd = r1 - r2, gd = g1 - g2, bd = b1 - b2;
+    return rd * rd + gd * gd + bd * bd;
+}
+
+WORD getColor(short r, short g, short b) {
+    int minIndex = 0;
+    int closest = getDistance(colorCodes[minIndex * 4 + 1], colorCodes[minIndex * 4 + 2], colorCodes[minIndex * 4 + 3], r, g, b);
+    for (int i = 1; i < 16; i++) {
+        int distance = getDistance(colorCodes[i * 4 + 1], colorCodes[i * 4 + 2], colorCodes[i * 4 + 3], r, g, b);
+        if (distance < closest) {
+            closest = distance;
+            minIndex = i;
+        }
+    }
+    return colorCodes[minIndex * 4] * 16 + 15;
 }
 
 int main() {
-	DWORD dw;
-	TCHAR space = ' ';
-	HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
-    
-    std::string name = "badapple";
+
+
+    DWORD dw;
+    TCHAR space = ' ';
+    HANDLE console = GetStdHandle(STD_OUTPUT_HANDLE);
+
+    std::string name;
+    std::cout << "NAME: ";
+    std::cin >> name;
 
     std::string videoFilePath = name + ".mp4";
     std::vector<cv::Mat> frames;
@@ -47,11 +101,11 @@ int main() {
         if (!cap.isOpened())  // check if we succeeded
             std::cerr << "blah blah video bad :(" << std::endl;
 
-        for (short x = 0; x < WIDTH * 2; x++)
-            for (short y = 0; y < HEIGHT; y++)
+        for (short x = 0; x < MAX_WIDTH * 2; x++)
+            for (short y = 0; y < MAX_HEIGHT; y++)
                 WriteConsoleOutputCharacter(console, &space, 1, { x, y }, &dw);
 
-        printf("Loading video: %s\n", name.c_str());
+        printf("LOADING VIDEO: %s\n", name.c_str());
 
         int numFrames = cap.get(cv::CAP_PROP_FRAME_COUNT);
         for (int frameNum = 0; frameNum < numFrames; frameNum++) {
@@ -78,24 +132,14 @@ int main() {
     std::string titleText = "LOADED VIDEO TITLE: " + name + "\n";
     printf(titleText.c_str());
     printf("FPS: %f\n", videoFPS);
-    printf("# FRAMES: %u\n", frames.size());
+    printf("# FRAMES: %i\n", frames.size());
     printf("DURATION: %f\n", frames.size() / videoFPS);
 
     Sleep(2500);
 
 
-    TCHAR frameCache[WIDTH * HEIGHT];
-
-   // const char* pallette = " abcdefghijklmnopqrstuvwxyz";
-    //const char* pallette = " ..:\"*#%";
-    //const char* pallette = "RASPUTIN";
-
-    /*
-    char pallette[15];
-    pallette[0] = ' ';
-    for (int i = 1; i < 15; i++)
-        pallette[i] = std::rand() % 100 + 32;
-    */
+    TCHAR frameCache[MAX_WIDTH * MAX_HEIGHT];
+    WORD colorCache[MAX_WIDTH * MAX_HEIGHT];
 
     std::string stringPallette = " ..:\"*#%";
     int numChars = stringPallette.size() - 1;
@@ -104,42 +148,66 @@ int main() {
     bool drawWithWords = false;
     int idx = 0;
 
-    for (short i = 0; i < HEIGHT; i++)
-        for (short j = 0; j < WIDTH; j++)
+    for (short i = 0; i < MAX_HEIGHT; i++)
+        for (short j = 0; j < MAX_WIDTH; j++)
             WriteConsoleOutputCharacter(console, &space, 1, { j * 2 + 1, i }, &dw);
 
     float duration = (float)frames.size() / videoFPS;
 
-    //std::string com = "open \""+name+".mp3\" type mpegvideo alias mp3";
-    //mciSendStringA(com.c_str(), NULL, 0, NULL);
     setRuntime(0);
-    //Sleep(1100);
     
     sf::SoundBuffer buffer;
-    if (!buffer.loadFromFile("arctic.wav")) {
+    if (!buffer.loadFromFile(name+".wav")) {
         return -1;
     }
-    sf::Sound sound;
-    sound.setBuffer(buffer);
-    sound.play();
+    song.setBuffer(buffer);
+    song.play();
 
-    SetConsoleTextAttribute(console, FOREGROUND_BLUE);
 
     auto last = std::chrono::high_resolution_clock::now();
+    float dt = 0.0f;
+    short screenWidth = 0, screenHeight = 0;
     while (runtime < duration) {
         if (GetKeyState(VK_LEFT) & 0x8000) {
-            setRuntime(runtime - 5.0f);
+            setRuntime(runtime - dt * 15);
         }
         if (GetKeyState(VK_RIGHT) & 0x8000) {
-            setRuntime(runtime + 5.0f);
+            setRuntime(runtime + dt * 15);
         }
+
+        if (GetKeyState(VK_SPACE) & 0x8000) {
+            if (!spaceDown)
+                togglePause();
+            spaceDown = true;
+        }
+        else spaceDown = false;
+
+        CONSOLE_SCREEN_BUFFER_INFO inf;
+        GetConsoleScreenBufferInfo(console, &inf);
+        short nScreenWidth = (inf.srWindow.Right - inf.srWindow.Left) / 2;
+        short nScreenHeight = inf.srWindow.Bottom - inf.srWindow.Top - 1;
+        if (nScreenWidth != screenWidth || nScreenHeight != screenHeight) {
+            // clear the buffer
+            WORD empty = 15;
+            for (short i = 0; i < MAX_WIDTH * 2; i++) 
+                for (short j = 0; j < MAX_HEIGHT; j++) {
+                    WriteConsoleOutputCharacter(console, &space, 1, { i, j }, &dw);
+                    WriteConsoleOutputAttribute(console, &empty, 1, { i, j }, &dw);
+                }
+            for (int i = 0; i < MAX_WIDTH * MAX_HEIGHT; i++) {
+                frameCache[i] = 0;
+                colorCache[i] = 0;
+            }
+        }
+        screenWidth = nScreenWidth;
+        screenHeight = nScreenHeight;
 
         int i = (int)(runtime / duration * frames.size());
         cv::Mat& mat = frames.at(i);
         idx = 0;
-        for (short i = 0; i < HEIGHT; i++) {
-            for (short j = 0; j < WIDTH; j++) {
-                int imgX = (int)((float)j / WIDTH * mat.cols), imgY = (int)((float)i / HEIGHT * mat.rows);
+        for (short i = 0; i < screenHeight; i++) {
+            for (short j = 0; j < screenWidth; j++) {
+                int imgX = (int)((float)j / screenWidth * mat.cols), imgY = (int)((float)i / screenHeight * mat.rows);
                 cv::Vec3b pixel = mat.at<cv::Vec3b>(imgY, imgX);
                 float val = (pixel[0] + pixel[1] + pixel[2]) / 765.0f;
                 TCHAR c = ' ';
@@ -152,23 +220,32 @@ int main() {
                         idx = (idx + 1) % numChars;
                     }
                 }
-                if (c == frameCache[j + i * WIDTH])
-                    continue;
-                WriteConsoleOutputCharacter(console, &c, 1, { j * 2, i }, &dw);
-                frameCache[j + i * WIDTH] = c;
+                if (c != frameCache[j + i * MAX_WIDTH]) {
+                    WriteConsoleOutputCharacter(console, &c, 1, { j * 2, i }, &dw);
+                    frameCache[j + i * MAX_WIDTH] = c;
+                }
+                if (useColor) {
+                    WORD cc = getColor(pixel[2], pixel[1], pixel[0]);
+                    if (cc != colorCache[j + i * MAX_WIDTH]) {
+                        WriteConsoleOutputAttribute(console, &cc, 1, { j * 2, i }, &dw);
+                        WriteConsoleOutputAttribute(console, &cc, 1, { j * 2 + 1, i }, &dw);
+                        colorCache[j + i * MAX_WIDTH] = cc;
+                    }
+                }
             }
         }
+
         float percentDone = runtime / duration;
         TCHAR c = ':';
-        for (short i = 1; i < WIDTH * 2; i++) {
-            if ((float)i / (WIDTH * 2) > percentDone)
+        for (short i = 1; i < screenWidth * 2 - 3; i++) {
+            if ((float)i / (screenWidth * 2) > percentDone)
                 c = '.';
-            WriteConsoleOutputCharacter(console, &c, 1, { i, HEIGHT }, &dw);
+            WriteConsoleOutputCharacter(console, &c, 1, { i, screenHeight }, &dw);
         }
         TCHAR ends = '<';
-        WriteConsoleOutputCharacter(console, &ends, 1, { 0, HEIGHT }, &dw);
+        WriteConsoleOutputCharacter(console, &ends, 1, { 0, screenHeight }, &dw);
         ends = '>';
-        WriteConsoleOutputCharacter(console, &ends, 1, { WIDTH * 2 - 3, HEIGHT }, &dw);
+        WriteConsoleOutputCharacter(console, &ends, 1, { screenWidth * 2 - 3, screenHeight }, &dw);
         // draw the time stamp
         int minutes = (int)runtime / 60;
         int seconds = (int)runtime % 60;
@@ -178,15 +255,24 @@ int main() {
          //   WriteConsoleOutputCharacter(console, &space, 1, { i, HEIGHT + 1 }, &dw);
         for (short i = 0; i < 5; i++) {
             TCHAR c = (TCHAR)str[i];
-            WriteConsoleOutputCharacter(console, &c, 1, { 2 + i, HEIGHT + 1 }, &dw);
+            WriteConsoleOutputCharacter(console, &c, 1, { 2 + i, screenHeight + 1 }, &dw);
         }
 
         //Sleep(5);
 
         auto now = std::chrono::high_resolution_clock::now();
-        runtime += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - last).count() / 1000000000.0f;
+        dt = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - last).count() / 1000000000.0f;
+        if (!paused)
+            runtime += dt;
         last = now;
     }
+
+    for (short i = 0; i < MAX_WIDTH; i++) for (short j = 0; j < MAX_HEIGHT; j++)
+        WriteConsoleOutputCharacter(console, &space, 1, { i, j }, &dw);
+
+    std::cout << "THANKS FOR WATCHING!" << std::endl;
+
+    Sleep(3000);
 
 	return 0;
 }
